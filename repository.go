@@ -14,6 +14,11 @@ import (
 // Repository
 type Repository struct {
 	ptr *C.git_repository
+
+	// These are kept so that two repo.Index() or repo.Odb() calls
+	// return the same object, as we do in the library
+	idx *Index
+	odb *Odb
 }
 
 func OpenRepository(path string) (*Repository, error) {
@@ -63,13 +68,19 @@ func (v *Repository) Config() (*Config, error) {
 }
 
 func (v *Repository) Index() (*Index, error) {
+
+	if v.idx != nil {
+		return v.idx, nil
+	}
+
 	var ptr *C.git_index
 	ret := C.git_repository_index(&ptr, v.ptr)
 	if ret < 0 {
 		return nil, LastError()
 	}
 
-	return newIndexFromC(ptr), nil
+	v.idx = newIndexFromC(ptr)
+	return v.idx, nil
 }
 
 func (v *Repository) lookupType(oid *Oid, t ObjectType) (Object, error) {
@@ -213,14 +224,21 @@ func (v *Odb) Free() {
 	C.git_odb_free(v.ptr)
 }
 
-func (v *Repository) Odb() (odb *Odb, err error) {
-	odb = new(Odb)
+func (v *Repository) Odb() (*Odb, error) {
+
+	if v.odb != nil {
+		return v.odb, nil
+	}
+
+	odb := new(Odb)
 	if ret := C.git_repository_odb(&odb.ptr, v.ptr); ret < 0 {
 		return nil, LastError()
 	}
 
 	runtime.SetFinalizer(odb, (*Odb).Free)
-	return
+	v.odb = odb
+
+	return odb, nil
 }
 
 func (repo *Repository) Path() string {
